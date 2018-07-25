@@ -1,9 +1,50 @@
-iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
+setwd('/home/rjagtani03')
+detach(package:dplyr,unload=T)
+detach(package:RPostgreSQL,unload=T)
+library(plyr)
+library(dplyr)
+library(data.table)
+library(smbinning)
+
+#### Reading File and cleaning 
+# 
+# email=fread('email_resp_y.csv',sep='|')
+# email=as.data.frame(email)
+# write.csv(email,'email_resp_y_v1.csv',row.names = F)
+# colnames(email)=gsub(colnames(email),pattern = 'ro_email_attr_croma4.',replacement = '')
+# email=fread('email_resp_y_v1.csv',sep=',')
+# 
+# 
+# sms=read.table('sms_resp_y.csv',sep='\t',header=T,quote="",fill=T)
+# sms=as.data.frame(sms)
+# colnames(sms)=gsub(colnames(sms),pattern = 'ro_sms_attr_croma4.',replacement = '')
+# write.csv(sms,'sms_resp_y_v1.csv',row.names = F)
+# sms=fread('sms_resp_y_v1.csv',sep=',')
+
+################
+
+email=fread('email_resp_y.csv',sep=',')
+email=as.data.frame(email)
+#email_summ=as.data.frame(smbinning.eda(email))
+#write.csv(email_summ,'data_summ_email.csv',row.names = F)
+email_summ=read.csv('data_summ_email.csv',stringsAsFactors = F)
+remove_cols=as.character(email_summ$eda.Field[email_summ$Action=='Remove'])
+integer_cols=as.character(email_summ$eda.Field[email_summ$Action=='integer'])
+factor_cols=as.character(email_summ$eda.Field[email_summ$Action=='factor'])
+numeric_cols=as.character(email_summ$eda.Field[email_summ$Action=='numeric'])
+#View(email_summ[,c('eda.Field','eda.Miss','eda.Unique','Action')])
+
+###############
+
+iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20,numeric_cutoff=10)
 {
-  
-  #df=df;unique_key=unique_key;target_var=target_var;maxcat=20;vars=iv_vars
+  #df=email;unique_key='tuid1';target_var='y_flag';maxcat=20;vars=c(factor_cols,numeric_cols);numeric_cutoff=10
+  # df=df1 
+  # vars=c('P')
+  # 
   # unique_key="name"
-  # target_var="y_flag"
+  #  target_var="y_flag"
+  df=as.data.frame(df)
   df=df[,c(unique_key,target_var,vars)]
   df[,target_var]=as.integer(as.character(df[,target_var]))
   if(sum(is.na(df[,target_var]))!=0)
@@ -13,7 +54,7 @@ iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
   
   summ <- as.data.frame(smbinning.eda(df, rounding = 3, pbar = 1))
   factor_vars=as.character(summ[summ$eda.Type=="Factor","eda.Field"])
-  df[,factor_vars]=lapply(df[,factor_vars],as.character)
+  df[,factor_vars]=lapply(as.data.frame(df[,factor_vars]),as.character)
   df[is.na(df)] <- -99999
   dat=data.table(df)
   # duplicating the data for further use
@@ -34,11 +75,11 @@ iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
     # number 10 is taken as for N>10 smbinning does not allow categorical variables
     v1 <- uniqueN(mod_data[, get(col_names[i])])
     
-    if(v1 >20 && !(col_names[i] %in% c(target_var,unique_key)))
+    if(v1 > numeric_cutoff && !(col_names[i] %in% c(target_var,unique_key)))
     {
       con_vars <- c(con_vars, col_names[i])
     }
-    else if(v1 <= 20 && !(col_names[i] %in% c(target_var,unique_key)))
+    else if(v1 <= numeric_cutoff && !(col_names[i] %in% c(target_var,unique_key)))
     {
       cat_vars <- c(cat_vars, col_names[i])
     }
@@ -67,12 +108,12 @@ iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
   blank_row <- c("NA", NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, "NA")
   #rm(iv_table)
   
-  
+  mod_data=as.data.frame(mod_data)
   for(i in 1:length(cat_vars))
   {
-    
-    
-    fac_bin = try(smbinning.factor(df = mod_data, y = target_var, x = cat_vars[i],maxcat = maxcat), TRUE)
+  
+    mod_data1=mod_data[,c(target_var,unique_key,cat_vars[i])]
+    fac_bin = try(smbinning.factor(df = mod_data1, y = target_var, x = cat_vars[i],maxcat = maxcat), TRUE)
     
     if(class(fac_bin)=="character")
     {
@@ -99,12 +140,14 @@ iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
   
   # BASED ON VARIABLE CATEGORIZATION, APPLY BINNING FOR CONTINUOUS VARIABLES AND CALCULATE IV
   
-  for(i in seq_along(con_vars))
+  for(i in 1:length(con_vars))
   {
-    if((is.numeric(mod_data[[con_vars[i]]]) | is.integer(mod_data[[con_vars[i]]])))
+    mod_data1=mod_data[,c(target_var,unique_key,con_vars[i])]
+    mod_data1=as.data.table(mod_data1)
+    if((is.numeric(mod_data1[[con_vars[i]]]) | is.integer(mod_data1[[con_vars[i]]])))
     {
       
-      temp_df <- mod_data[get(con_vars[i]) !=0 & get(con_vars[i]) !=-99999, .(get(con_vars[i]),get(target_var))]
+      temp_df <- mod_data1[get(con_vars[i]) !=0 & get(con_vars[i]) !=-99999, .(get(con_vars[i]),get(target_var))]
       x.Pct20.Breaks=as.vector(quantile(temp_df[,1,with=F], probs=seq(0,1,0.2), na.rm=TRUE))
       Cuts.x.Pct20=x.Pct20.Breaks[1:(length(x.Pct20.Breaks))]
       cut_len <- length(Cuts.x.Pct20)
@@ -114,7 +157,7 @@ iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
       }
       Cuts.x.Pct20[1]=-99999 
       Cuts.x.Pct20[2]=0
-      fac_bin=try(smbinning.custom(df=mod_data,y=target_var,x=con_vars[i],cuts=Cuts.x.Pct20))
+      fac_bin=try(smbinning.custom(df=mod_data1,y=target_var,x=con_vars[i],cuts=Cuts.x.Pct20))
       
       if(class(fac_bin)=="character")
       { 
@@ -193,5 +236,12 @@ iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
   #iv_table_correct=iv_table_correct[iv_table_correct$Cutpoint!='Total',]
   #write.csv(final_iv_table,paste0(getwd(),"/iv_table_cleaned.csv"),row.names =FALSE)
   #print("Cleaned IV Table written to working directory")
-  return(list(con_vars,cat_vars,final_iv_table,mod_data))
+  return(list(con_vars,cat_vars,iv_table_sorted,final_iv_table,mod_data))
 }
+
+
+iv_list=iv(df = email,unique_key = 'tuid1',target_var = 'y_flag',vars=c(factor_cols,numeric_cols),numeric_cutoff = 10)
+save(iv_list,file='iv_email.Rda')
+write.csv(iv_list[[3]],'iv_table.csv',row.names = F)
+cv=iv_list[[2]]
+which(cv=='id_auto_ins')
