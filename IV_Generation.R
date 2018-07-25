@@ -1,6 +1,3 @@
-Ben Howard - Promise
-
-
 iv = function(df=NULL,vars=NULL,unique_key=NULL,target_var=NULL,maxcat=20)
 {
   
